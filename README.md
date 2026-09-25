@@ -10,8 +10,8 @@ the training set with five seeds each, for 30 runs.
 
 | | Result |
 |---|---|
-| Accuracy | No measurable difference at any data size. Test macro-F1 gaps are +0.0010 to +0.0024 and every 95% CI includes zero. |
-| Calibration | At 1% data, full fine-tuning is badly overconfident (ECE 0.245 vs 0.117). At 5% and 10% the gap is smaller and not significant. |
+| Accuracy | No measurable difference at any data size (gaps +0.0010 to +0.0024, every 95% CI includes zero). Equivalent within ±0.01 macro-F1 at 1% and 10%; at 5% the test sits exactly on the boundary. |
+| Calibration | At 1% data, full fine-tuning is badly overconfident (ECE 0.245 vs 0.117), consistently across seeds. At 5% and 10% the raw gap is not consistent across seeds. After temperature scaling LoRA keeps a small edge in every seed at every fraction. |
 | Efficiency | LoRA trains 0.80% of the parameters, saves a 124× smaller artefact, and uses 25% (T4) to 42% (A100) less peak GPU memory. |
 | Speed | LoRA is 1.5–2.1× faster on a T4 but not faster on an A100 (parity at 1%, about 6% slower at 5–10%). |
 
@@ -28,7 +28,7 @@ the training set with five seeds each, for 30 runs.
 | LoRA | r=8, alpha=16, dropout 0.1, on `query` and `value`, learning rate 2e-4 |
 | Training | 8 epochs, batch size 16, fp16, no early stopping |
 | Model selection | epoch with the best validation macro-F1; test scored once per run |
-| Subsets | `train.shuffle(seed).select(range(n))`, so both methods see the same data per seed |
+| Subsets | `train.shuffle(seed).select(range(n))`: same subset for both methods per seed (indices not saved) |
 | Seeds | 7, 13, 21, 33, 42 |
 
 Both methods get the same fixed budget. In a pilot, early stopping with patience 2 stopped
@@ -53,30 +53,65 @@ All numbers come from `python src/analyze.py`. The full output is in
 ± is the standard deviation over seeds. Per-seed exact McNemar tests: 1 of 15 has
 p < 0.05 and none survives Holm correction.
 
-No equivalence margin was fixed before the experiment, so no equivalence claim is made.
-The 90% CIs would support margins of ±0.0059 (1%), ±0.0100 (5%) and ±0.0065 (10%).
+Equivalence is tested with TOST at a margin of ±0.01 macro-F1 (one point). The margin was
+set in the analysis after the runs had finished; it was not pre-registered.
+
+| Fraction | 90% CI of the gap | TOST p (±0.01) |
+|---|---|---|
+| 1% | [−0.0039, +0.0059] | 0.009 |
+| 5% | [−0.0053, +0.0100] | 0.050 |
+| 10% | [−0.0046, +0.0065] | 0.013 |
+
+At 5% the upper bound of the 90% CI equals the margin (p = 0.049997), so equivalence there
+depends on the fourth decimal and is not claimed.
 
 The two methods reach the same score with different predictions. They agree on 83.9% (1%),
 86.6% (5%) and 86.9% (10%) of test items.
 
 ### Calibration
 
-Expected calibration error, 15 equal-width bins:
+Differences are LoRA minus full fine-tuning, so negative means LoRA is better calibrated.
+ECE uses 15 equal-width bins over the attainable confidence range [1/3, 1].
 
-| Fraction | Full FT ECE | LoRA ECE | Difference | 95% CI | p | Seeds where LoRA is lower |
-|---|---|---|---|---|---|---|
-| 1% | 0.245 ± 0.009 | 0.117 ± 0.009 | −0.128 | [−0.139, −0.117] | 5 × 10⁻⁶ | 5/5 |
-| 5% | 0.102 ± 0.070 | 0.079 ± 0.006 | −0.023 | [−0.103, +0.058] | 0.48 | 3/5 |
-| 10% | 0.120 ± 0.062 | 0.052 ± 0.014 | −0.067 | [−0.150, +0.015] | 0.085 | 4/5 |
+Two intervals are given because they answer different questions. The **seed-level** CI
+(paired t over the five seeds) includes training variability: it indicates whether
+retraining would give the same answer. The **item-level** CI (paired bootstrap over test
+items, models held fixed) only covers test-set sampling noise for these five models, and is
+always much narrower.
+
+| Fraction | Metric | Full FT | LoRA | Difference | Seed-level 95% CI | p | LoRA lower | Item-level 95% CI |
+|---|---|---|---|---|---|---|---|---|
+| 1% | ECE | 0.245 | 0.117 | −0.128 | [−0.139, −0.117] | 5 × 10⁻⁶ | 5/5 | [−0.134, −0.121] |
+| | Brier | 0.517 | 0.416 | −0.101 | [−0.110, −0.091] | 8 × 10⁻⁶ | 5/5 | [−0.110, −0.091] |
+| | NLL | 1.334 | 0.754 | −0.579 | [−0.718, −0.441] | 0.0003 | 5/5 | [−0.611, −0.546] |
+| | ECE after T | 0.066 | 0.026 | −0.040 | [−0.056, −0.024] | 0.002 | 5/5 | [−0.043, −0.029] |
+| 5% | ECE | 0.103 | 0.079 | −0.023 | [−0.102, +0.056] | 0.46 | 3/5 | [−0.030, −0.019] |
+| | Brier | 0.362 | 0.338 | −0.023 | [−0.068, +0.021] | 0.21 | 4/5 | [−0.030, −0.017] |
+| | NLL | 0.721 | 0.614 | −0.108 | [−0.340, +0.124] | 0.27 | 3/5 | [−0.122, −0.094] |
+| | ECE after T | 0.034 | 0.017 | −0.017 | [−0.030, −0.003] | 0.027 | 5/5 | [−0.018, −0.007] |
+| 10% | ECE | 0.120 | 0.053 | −0.067 | [−0.150, +0.015] | 0.087 | 4/5 | [−0.071, −0.061] |
+| | Brier | 0.352 | 0.313 | −0.039 | [−0.087, +0.009] | 0.086 | 5/5 | [−0.046, −0.033] |
+| | NLL | 0.812 | 0.563 | −0.249 | [−0.658, +0.161] | 0.17 | 4/5 | [−0.269, −0.230] |
+| | ECE after T | 0.030 | 0.014 | −0.016 | [−0.033, +0.000] | 0.053 | 5/5 | [−0.018, −0.007] |
 
 At 1%, full fine-tuning's mean confidence is 96.0% at 71.6% accuracy; LoRA's is 83.4% at
-71.7%. Temperature scaling reduces the 1% gap to −0.027 (95% CI [−0.043, −0.011]). Only
-test logits were saved, so the temperature is fitted on one half of the test set and
-evaluated on the other.
+71.7%. The gap holds for every metric and both kinds of interval.
 
-Full fine-tuning's ECE varies a lot between seeds at 5% and 10%, along with its selected
-epoch. The calibration difference is therefore tied to checkpoint selection under this
-protocol and is not claimed as a general property of LoRA.
+At 5% and 10%, the item-level intervals exclude zero but the seed-level ones do not. Full
+fine-tuning's calibration varies a lot between seeds (ECE from 0.019 to 0.194 at 5%), and in
+two of the five 5% seeds it is better calibrated than LoRA. So for these five models LoRA is
+better calibrated on average, but a retrained pair could come out either way.
+
+"ECE after T" applies temperature scaling. Only test logits were saved, so the temperature
+is fitted by 5-fold cross-validation on the test set (fit on four folds, apply to the
+fifth), not on a validation set as usual. The fitted temperatures are larger for full
+fine-tuning (3.11, 1.64, 2.04) than for LoRA (1.64, 1.45, 1.30). After scaling, LoRA's ECE is
+lower in every seed at every fraction. This residual difference is small, and the three
+tests are not corrected for multiple comparisons.
+
+Full fine-tuning's raw ECE moves with its selected epoch, which scatters across seeds. The
+calibration difference is therefore tied to checkpoint selection under this protocol and is
+not claimed as a general property of LoRA.
 
 ### Convergence
 
@@ -118,11 +153,16 @@ fine-tuning to reach the checkpoint that is kept.
   [`results/superseded_runs.csv`](results/superseded_runs.csv); their logits were not kept.
   Individual scores changed by up to 0.0068, and all three pairs moved towards LoRA. With
   the earlier runs substituted, the gaps are −0.0004 [−0.0060, +0.0053] at 1% and
-  +0.0009 [−0.0104, +0.0123] at 5%. The conclusion does not change.
+  +0.0009 [−0.0104, +0.0123] at 5%, and TOST at ±0.01 gives p = 0.004 and p = 0.045. The
+  conclusion does not change.
 - **The 8-epoch budget may be too short for LoRA at 1%.** Its best epoch was the last one in
   4 of 5 seeds.
 - **Three data sizes are three points, not a scaling curve.** Nothing here tests what
   happens at 25% or more of the data.
+- **Training subsets were not saved.** Both methods use
+  `train.shuffle(seed).select(range(n))`, which gives the same subset per seed and nests
+  subsets across fractions by construction, but the indices were not recorded, so this is
+  not verified against the runs themselves.
 - **Five seeds per cell.** Confidence intervals are wide, and the calibration and
   convergence tests are not corrected for multiple comparisons.
 

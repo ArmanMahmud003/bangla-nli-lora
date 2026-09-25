@@ -6,10 +6,10 @@ NVIDIA A100-SXM4-40GB  4.54.1        0.14.0  fp16         16
 Tesla T4               5.15.0        0.20.0  fp16         14
 (fraction, seed) pairs split across GPUs: 0
 
-=== test macro-F1 ===
-0.01  full 0.7172 (sd 0.0034)  lora 0.7183 (sd 0.0080)  gap +0.0010  95% CI [-0.0054, +0.0074]  p=0.685  90% CI [-0.0039, +0.0059]  smallest supported margin 0.0059
-0.05  full 0.7683 (sd 0.0072)  lora 0.7706 (sd 0.0019)  gap +0.0024  95% CI [-0.0076, +0.0123]  p=0.547  90% CI [-0.0053, +0.0100]  smallest supported margin 0.0100
-0.1   full 0.7842 (sd 0.0027)  lora 0.7851 (sd 0.0044)  gap +0.0010  95% CI [-0.0062, +0.0082]  p=0.728  90% CI [-0.0046, +0.0065]  smallest supported margin 0.0065
+=== test macro-F1 (TOST margin +/-0.01, p < 0.05 = equivalent) ===
+0.01  full 0.7172 (sd 0.0034)  lora 0.7183 (sd 0.0080)  gap +0.0010  95% CI [-0.0054, +0.0074]  p=0.685  90% CI [-0.0039, +0.0059]  TOST +/-0.01 p=0.008812
+0.05  full 0.7683 (sd 0.0072)  lora 0.7706 (sd 0.0019)  gap +0.0024  95% CI [-0.0076, +0.0123]  p=0.547  90% CI [-0.0053, +0.0100]  TOST +/-0.01 p=0.049997
+0.1   full 0.7842 (sd 0.0027)  lora 0.7851 (sd 0.0044)  gap +0.0010  95% CI [-0.0062, +0.0082]  p=0.728  90% CI [-0.0046, +0.0065]  TOST +/-0.01 p=0.012731
 
 === replacement check: superseded run vs its A100 re-run (test macro-F1) ===
 full_ft_frac0.01_seed42    Tesla T4  (transformers 5.15.0) 0.7235 -> A100 0.7170  diff -0.0065
@@ -23,8 +23,8 @@ pair gaps (LoRA - full), superseded vs delivered:
   0.05  seed 21  -0.0082 -> -0.0053
   0.05  seed 33  -0.0035 -> +0.0006
 macro-F1 comparison with the superseded runs substituted back:
-  0.01  full 0.7186  lora 0.7182  gap -0.0004  95% CI [-0.0060, +0.0053]  p=0.871  90% CI [-0.0047, +0.0040]  smallest supported margin 0.0047
-  0.05  full 0.7687  lora 0.7697  gap +0.0009  95% CI [-0.0104, +0.0123]  p=0.827  90% CI [-0.0077, +0.0096]  smallest supported margin 0.0096
+  0.01  full 0.7186  lora 0.7182  gap -0.0004  95% CI [-0.0060, +0.0053]  p=0.871  90% CI [-0.0047, +0.0040]  TOST +/-0.01 p=0.004478
+  0.05  full 0.7687  lora 0.7697  gap +0.0009  95% CI [-0.0104, +0.0123]  p=0.827  90% CI [-0.0077, +0.0096]  TOST +/-0.01 p=0.045178
 
 === per-seed McNemar on accuracy, Holm-corrected over all pairs ===
 0.01  seed 7   full-only right  357  lora-only right  342  p=0.5965  holm=1.0000
@@ -51,16 +51,24 @@ fraction
 0.05      0.8661  1420  1469
 0.10      0.8686  1423  1453
 
-=== calibration: ECE (15 bins), paired over seeds ===
-0.01  full 0.245 (sd 0.009)  lora 0.117 (sd 0.009)  dECE -0.128  p=4.7e-06  t-CI [-0.139, -0.117]  seed-bootstrap CI [-0.135, -0.122]  dz=-15.0  seeds LoRA better 5/5
-      mean confidence full 0.960 / lora 0.834 at accuracy 0.716 / 0.717
-      after cross-fitted temperature scaling: full 0.054  lora 0.027  dECE -0.027  t-CI [-0.043, -0.011]
-0.05  full 0.102 (sd 0.070)  lora 0.079 (sd 0.006)  dECE -0.023  p=0.48  t-CI [-0.103, +0.058]  seed-bootstrap CI [-0.073, +0.027]  dz=-0.4  seeds LoRA better 3/5
-      mean confidence full 0.867 / lora 0.848 at accuracy 0.768 / 0.770
-      after cross-fitted temperature scaling: full 0.036  lora 0.019  dECE -0.017  t-CI [-0.033, -0.001]
-0.1   full 0.120 (sd 0.062)  lora 0.052 (sd 0.014)  dECE -0.067  p=0.085  t-CI [-0.150, +0.015]  seed-bootstrap CI [-0.119, -0.016]  dz=-1.0  seeds LoRA better 4/5
-      mean confidence full 0.903 / lora 0.834 at accuracy 0.784 / 0.785
-      after cross-fitted temperature scaling: full 0.030  lora 0.018  dECE -0.011  t-CI [-0.022, -0.001]
+=== calibration, LoRA - full (negative = LoRA better; ECE 15 bins) ===
+seed-level: paired t over seeds (includes training variability)
+item-level: paired bootstrap over test items, models held fixed
+0.01: mean confidence full 0.960 / lora 0.834 at accuracy 0.716 / 0.717; fitted T full 3.11, lora 1.64
+  ECE          full 0.2446 (sd 0.0088)  lora 0.1167 (sd 0.0090)  diff -0.1279  seed-level [-0.1387, -0.1171] p=5.1e-06  LoRA lower in 5/5  item-level [-0.1337, -0.1213]
+  Brier        full 0.5165 (sd 0.0110)  lora 0.4159 (sd 0.0121)  diff -0.1006  seed-level [-0.1100, -0.0912] p=7.7e-06  LoRA lower in 5/5  item-level [-0.1097, -0.0908]
+  NLL          full 1.3335 (sd 0.1189)  lora 0.7541 (sd 0.0217)  diff -0.5794  seed-level [-0.7175, -0.4413] p=0.00031  LoRA lower in 5/5  item-level [-0.6108, -0.5461]
+  ECE after T  full 0.0659 (sd 0.0118)  lora 0.0258 (sd 0.0027)  diff -0.0401  seed-level [-0.0559, -0.0243] p=0.0021  LoRA lower in 5/5  item-level [-0.0426, -0.0290]
+0.05: mean confidence full 0.867 / lora 0.848 at accuracy 0.768 / 0.770; fitted T full 1.64, lora 1.45
+  ECE          full 0.1026 (sd 0.0685)  lora 0.0791 (sd 0.0058)  diff -0.0234  seed-level [-0.1024, +0.0555] p=0.46  LoRA lower in 3/5  item-level [-0.0296, -0.0186]
+  Brier        full 0.3616 (sd 0.0363)  lora 0.3382 (sd 0.0030)  diff -0.0234  seed-level [-0.0676, +0.0207] p=0.21  LoRA lower in 4/5  item-level [-0.0302, -0.0169]
+  NLL          full 0.7213 (sd 0.1940)  lora 0.6136 (sd 0.0091)  diff -0.1078  seed-level [-0.3396, +0.1241] p=0.27  LoRA lower in 3/5  item-level [-0.1215, -0.0942]
+  ECE after T  full 0.0338 (sd 0.0121)  lora 0.0174 (sd 0.0033)  diff -0.0165  seed-level [-0.0299, -0.0030] p=0.027  LoRA lower in 5/5  item-level [-0.0183, -0.0069]
+0.1: mean confidence full 0.903 / lora 0.834 at accuracy 0.784 / 0.785; fitted T full 2.04, lora 1.30
+  ECE          full 0.1202 (sd 0.0614)  lora 0.0530 (sd 0.0135)  diff -0.0672  seed-level [-0.1497, +0.0153] p=0.087  LoRA lower in 4/5  item-level [-0.0710, -0.0610]
+  Brier        full 0.3516 (sd 0.0399)  lora 0.3125 (sd 0.0070)  diff -0.0391  seed-level [-0.0869, +0.0087] p=0.086  LoRA lower in 5/5  item-level [-0.0459, -0.0326]
+  NLL          full 0.8120 (sd 0.3333)  lora 0.5630 (sd 0.0181)  diff -0.2489  seed-level [-0.6584, +0.1605] p=0.17  LoRA lower in 4/5  item-level [-0.2689, -0.2296]
+  ECE after T  full 0.0303 (sd 0.0139)  lora 0.0140 (sd 0.0049)  diff -0.0164  seed-level [-0.0331, +0.0004] p=0.053  LoRA lower in 5/5  item-level [-0.0176, -0.0066]
 
 === best (dev-selected) epoch ===
 0.01  full [5, 5, 7, 8, 8] (mean 6.6)  lora [7, 8, 8, 8, 8] (mean 7.8)  paired gap +1.2  LoRA later in 3/5  p=0.1087  ceiling hit full 2/5, lora 4/5

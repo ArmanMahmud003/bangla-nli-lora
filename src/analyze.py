@@ -1,17 +1,20 @@
 """Every number in the README, recomputed from results/. No GPU needed.
 
     python src/analyze.py                  # tables to stdout, figures to figures/
-    python src/analyze.py --margin 0.01    # also run TOST at a stated margin
+    python src/analyze.py --margin 0.02    # TOST at another margin (default 0.01)
 
 Reads runs/*.json (manifests), preds/*_test.npz (test logits and labels),
 curves/*.json (per-epoch dev curves) and superseded_runs.csv (the six earlier runs
-that A100 re-runs replaced). Only test logits are saved, so temperature scaling is
-cross-fitted on the test set: fit T on one half, score ECE on the other, swap and
-average. It is a sensitivity check, not a validation-fitted calibration result.
+that A100 re-runs replaced).
 
-No equivalence margin was fixed before the data were collected, so TOST runs only
-when --margin is given. Otherwise the smallest margin each 90% CI would support is
-reported, which is descriptive, not a test.
+Calibration differences get two intervals, because they answer different questions:
+  seed-level  paired t over the five seeds. Includes training variability, so it is
+              the one that says whether retraining would give the same answer.
+  item-level  paired bootstrap over test items with the five trained models held
+              fixed. It only covers test-set sampling noise for these models.
+
+Only test logits are saved, so temperature scaling is 5-fold cross-validated on the
+test set: T is fitted on four folds and applied to the fifth.
 """
 import argparse
 import glob
@@ -28,6 +31,8 @@ METHODS = ("full_ft", "lora")
 LABEL = {"full_ft": "Full fine-tuning", "lora": "LoRA"}
 N_BINS = 15
 BOOT_N = 10000
+ITEM_BOOT_N = 2000
+TOST_MARGIN = 0.01   # one macro-F1 point; set after data collection, not pre-registered
 
 
 def softmax(z):
@@ -37,33 +42,58 @@ def softmax(z):
 
 
 def ece(p, y, n_bins=N_BINS):
-    """Expected calibration error, equal-width confidence bins on the top-1 prob."""
-    conf, pred = p.max(1), p.argmax(1)
-    edges = np.linspace(0, 1, n_bins + 1)
+    """Top-label expected calibration error. Equal-width bins span the attainable
+    confidence range [1/C, 1]; with 3 classes the top probability is never below 1/3."""
+    conf, correct = p.max(1), p.argmax(1) == y
+    edges = np.linspace(1.0 / p.shape[1], 1.0, n_bins + 1)
+    edges[0], edges[-1] = 0.0, 1.0 + 1e-9
     total = 0.0
     for lo, hi in zip(edges[:-1], edges[1:]):
-        m = (conf > lo) & (conf <= hi)
+        m = (conf >= lo) & (conf < hi)
         if m.any():
-            total += m.mean() * abs((pred[m] == y[m]).mean() - conf[m].mean())
+            total += m.mean() * abs(correct[m].mean() - conf[m].mean())
     return total
 
 
+def nll(p, y):
+    return float(-np.log(np.clip(p[np.arange(len(y)), y], 1e-12, 1.0)).mean())
+
+
+def brier(p, y):
+    return float(((p - np.eye(p.shape[1])[y]) ** 2).sum(1).mean())
+
+
+CALIBRATION = {"ECE": ece, "Brier": brier, "NLL": nll}
+
+
 def fit_temperature(logits, y):
-    def nll(t):
-        p = softmax(logits / t)
-        return -np.log(p[np.arange(len(y)), y] + 1e-12).mean()
-    return minimize_scalar(nll, bounds=(0.05, 20.0), method="bounded").x
+    return minimize_scalar(lambda t: nll(softmax(logits / t), y),
+                           bounds=(0.05, 10.0), method="bounded").x
 
 
-def crossfit_ece(logits, y, seed=0):
-    """Two-fold cross-fitted temperature scaling on the test set."""
-    idx = np.random.default_rng(seed).permutation(len(y))
-    a, b = idx[: len(y) // 2], idx[len(y) // 2:]
-    out = []
-    for fit, ev in ((a, b), (b, a)):
-        t = fit_temperature(logits[fit], y[fit])
-        out.append(ece(softmax(logits[ev] / t), y[ev]))
-    return float(np.mean(out))
+def cv_temperature(logits, y, seed, k=5):
+    """Temperature-scaled probabilities, each fold scaled by a T fitted on the
+    other k-1 folds. Returns (probs, mean T)."""
+    folds = np.array_split(np.random.default_rng(seed).permutation(len(y)), k)
+    out, temps = np.zeros_like(logits), []
+    for i, test in enumerate(folds):
+        train = np.concatenate([f for j, f in enumerate(folds) if j != i])
+        t = fit_temperature(logits[train], y[train])
+        temps.append(t)
+        out[test] = softmax(logits[test] / t)
+    return out, float(np.mean(temps))
+
+
+def item_bootstrap_gap(pairs, metric, rng, n_boot=ITEM_BOOT_N):
+    """95% CI on the seed-averaged LoRA - full difference in `metric`, resampling
+    test items (paired across methods and seeds) with the models held fixed."""
+    y = pairs[0][2]
+    boot = []
+    for _ in range(n_boot):
+        idx = rng.integers(0, len(y), len(y))
+        boot.append(np.mean([metric(pl[idx], yy[idx]) - metric(pf[idx], yy[idx])
+                             for pf, pl, yy in pairs]))
+    return np.percentile(boot, [2.5, 97.5])
 
 
 def paired_t_ci(d, level=0.95):
@@ -88,16 +118,16 @@ def mcnemar_exact(right_a, right_b):
     return b, c, stats.binomtest(b, b + c, 0.5).pvalue if b + c else 1.0
 
 
-def gap_line(d, margin=None):
+def gap_line(d, margin):
     lo, hi = paired_t_ci(d)
     lo90, hi90 = paired_t_ci(d, 0.90)
-    out = (f"gap {d.mean():+.4f}  95% CI [{lo:+.4f}, {hi:+.4f}]  "
-           f"p={stats.ttest_rel(d, np.zeros(len(d))).pvalue:.3f}  "
-           f"90% CI [{lo90:+.4f}, {hi90:+.4f}]  "
-           f"smallest supported margin {max(-lo90, hi90):.4f}")
-    if margin:
-        out += f"  TOST {'EQUIVALENT' if lo90 > -margin and hi90 < margin else 'not shown'}"
-    return out
+    se = d.std(ddof=1) / np.sqrt(len(d))
+    p_tost = max(1 - stats.t.cdf((d.mean() + margin) / se, len(d) - 1),
+                 stats.t.cdf((d.mean() - margin) / se, len(d) - 1))
+    return (f"gap {d.mean():+.4f}  95% CI [{lo:+.4f}, {hi:+.4f}]  "
+            f"p={stats.ttest_rel(d, np.zeros(len(d))).pvalue:.3f}  "
+            f"90% CI [{lo90:+.4f}, {hi90:+.4f}]  "
+            f"TOST +/-{margin:g} p={p_tost:.6f}")
 
 
 def sensitivity(art, wide, margin):
@@ -136,9 +166,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--artifacts", default="results")
     ap.add_argument("--figures", default="figures")
-    ap.add_argument("--margin", type=float, default=None,
-                    help="TOST equivalence margin on macro-F1. Must be justified "
-                         "independently of these results; none is by default.")
+    ap.add_argument("--margin", type=float, default=TOST_MARGIN,
+                    help="TOST equivalence margin on macro-F1 (default 0.01)")
     args = ap.parse_args()
     art = args.artifacts
 
@@ -156,22 +185,23 @@ def main():
     for _, r in runs.iterrows():
         logits, y = load(art, r.run_id)
         p = softmax(logits)
-        preds[r.run_id] = (logits, p, y)
+        p_ts, temp = cv_temperature(logits, y, seed=int(r.seed))
+        preds[r.run_id] = (logits, p, y, p_ts)
         rows.append(dict(run_id=r.run_id, method=r.method, fraction=r.fraction, seed=r.seed,
                          gpu=r.gpu, best_epoch=r.best_epoch, ceiling_hit=r.ceiling_hit,
                          f1=f1_score(y, p.argmax(1), average="macro"),
                          acc=(p.argmax(1) == y).mean(), conf=p.max(1).mean(),
-                         ece=ece(p, y), ece_ts=crossfit_ece(logits, y)))
+                         ECE=ece(p, y), Brier=brier(p, y), NLL=nll(p, y),
+                         ECE_ts=ece(p_ts, y), T=temp))
     m = pd.DataFrame(rows)
     wide = m.pivot_table(index=["fraction", "seed"], columns="method",
-                         values=["f1", "ece", "ece_ts", "best_epoch"])
+                         values=["f1", "ECE", "Brier", "NLL", "ECE_ts", "best_epoch"])
 
     split = runs.groupby(["fraction", "seed"]).gpu.nunique()
     print(f"(fraction, seed) pairs split across GPUs: {int((split > 1).sum())}")
 
     # ---- accuracy + TOST -----------------------------------------------------
-    print("\n=== test macro-F1"
-          + (f" (TOST margin +/-{args.margin})" if args.margin else "") + " ===")
+    print(f"\n=== test macro-F1 (TOST margin +/-{args.margin:g}, p < 0.05 = equivalent) ===")
     for f in fractions:
         a, b = wide.loc[f, ("f1", "full_ft")], wide.loc[f, ("f1", "lora")]
         print(f"{f:<5g} full {a.mean():.4f} (sd {a.std():.4f})  lora {b.mean():.4f} "
@@ -184,8 +214,8 @@ def main():
     tests = []
     for f in fractions:
         for s in seeds:
-            _, pf, y = preds[f"full_ft_frac{f:g}_seed{s}"]
-            _, pl, _ = preds[f"lora_frac{f:g}_seed{s}"]
+            _, pf, y, _ = preds[f"full_ft_frac{f:g}_seed{s}"]
+            _, pl, _, _ = preds[f"lora_frac{f:g}_seed{s}"]
             b, c, p = mcnemar_exact(pf.argmax(1) == y, pl.argmax(1) == y)
             tests.append((f, s, b, c, p, (pf.argmax(1) == pl.argmax(1)).mean()))
     adj = holm(np.array([t[4] for t in tests]))
@@ -202,26 +232,32 @@ def main():
           .agg({"agree": "mean", "b": "sum", "c": "sum"}).round(4).to_string())
 
     # ---- calibration ---------------------------------------------------------
-    rng = np.random.default_rng(0)
-    print(f"\n=== calibration: ECE ({N_BINS} bins), paired over seeds ===")
+    rng = np.random.default_rng(20260910)
+    print(f"\n=== calibration, LoRA - full (negative = LoRA better; ECE {N_BINS} bins) ===")
+    print("seed-level: paired t over seeds (includes training variability)")
+    print("item-level: paired bootstrap over test items, models held fixed")
     for f in fractions:
-        ef, el = wide.loc[f, ("ece", "full_ft")], wide.loc[f, ("ece", "lora")]
-        d = (el - ef).values
-        boot = rng.choice(d, (BOOT_N, len(d))).mean(1)
-        tf, tl = wide.loc[f, ("ece_ts", "full_ft")], wide.loc[f, ("ece_ts", "lora")]
-        dt = (tl - tf).values
-        lo_t, hi_t = paired_t_ci(dt)
-        sub = m[m.fraction == f].groupby("method")[["conf", "acc"]].mean()
-        print(f"{f:<5g} full {ef.mean():.3f} (sd {ef.std():.3f})  lora {el.mean():.3f} "
-              f"(sd {el.std():.3f})  dECE {d.mean():+.3f}  p={stats.ttest_rel(el, ef).pvalue:.2g}  "
-              f"t-CI [{paired_t_ci(d)[0]:+.3f}, {paired_t_ci(d)[1]:+.3f}]  "
-              f"seed-bootstrap CI [{np.percentile(boot, 2.5):+.3f}, {np.percentile(boot, 97.5):+.3f}]  "
-              f"dz={d.mean() / d.std(ddof=1):.1f}  seeds LoRA better {int((d < 0).sum())}/{len(d)}")
-        print(f"      mean confidence full {sub.loc['full_ft', 'conf']:.3f} / lora "
+        pairs_raw = [(preds[f"full_ft_frac{f:g}_seed{s}"][1], preds[f"lora_frac{f:g}_seed{s}"][1],
+                      preds[f"full_ft_frac{f:g}_seed{s}"][2]) for s in seeds]
+        pairs_ts = [(preds[f"full_ft_frac{f:g}_seed{s}"][3], preds[f"lora_frac{f:g}_seed{s}"][3],
+                     preds[f"full_ft_frac{f:g}_seed{s}"][2]) for s in seeds]
+        sub = m[m.fraction == f].groupby("method")[["conf", "acc", "T"]].mean()
+        print(f"{f:g}: mean confidence full {sub.loc['full_ft', 'conf']:.3f} / lora "
               f"{sub.loc['lora', 'conf']:.3f} at accuracy {sub.loc['full_ft', 'acc']:.3f} / "
-              f"{sub.loc['lora', 'acc']:.3f}")
-        print(f"      after cross-fitted temperature scaling: full {tf.mean():.3f}  lora "
-              f"{tl.mean():.3f}  dECE {dt.mean():+.3f}  t-CI [{lo_t:+.3f}, {hi_t:+.3f}]")
+              f"{sub.loc['lora', 'acc']:.3f}; fitted T full {sub.loc['full_ft', 'T']:.2f}, "
+              f"lora {sub.loc['lora', 'T']:.2f}")
+        for name, col, pairs, fn in (("ECE", "ECE", pairs_raw, ece),
+                                     ("Brier", "Brier", pairs_raw, brier),
+                                     ("NLL", "NLL", pairs_raw, nll),
+                                     ("ECE after T", "ECE_ts", pairs_ts, ece)):
+            a_, b_ = wide.loc[f, (col, "full_ft")], wide.loc[f, (col, "lora")]
+            d = (b_ - a_).values
+            lo, hi = paired_t_ci(d)
+            ilo, ihi = item_bootstrap_gap(pairs, fn, rng)
+            print(f"  {name:12s} full {a_.mean():.4f} (sd {a_.std():.4f})  lora {b_.mean():.4f} "
+                  f"(sd {b_.std():.4f})  diff {d.mean():+.4f}  seed-level [{lo:+.4f}, {hi:+.4f}] "
+                  f"p={stats.ttest_rel(b_, a_).pvalue:.2g}  LoRA lower in {int((d < 0).sum())}/{len(d)}"
+                  f"  item-level [{ilo:+.4f}, {ihi:+.4f}]")
 
     # ---- convergence ---------------------------------------------------------
     print("\n=== best (dev-selected) epoch ===")
@@ -259,7 +295,7 @@ def figures(art, out, m, fractions):
     fig, axes = plt.subplots(1, 2, figsize=(10, 3.8))
     for ax, col, ylabel, title in (
             (axes[0], "f1", "test macro-F1", "Accuracy: no measurable gap"),
-            (axes[1], "ece", f"test ECE ({N_BINS} bins, lower is better)",
+            (axes[1], "ECE", f"test ECE ({N_BINS} bins, lower is better)",
              "Calibration: gap largest at 1%")):
         for j, meth in enumerate(METHODS):
             g = m[m.method == meth].groupby("fraction")[col]
