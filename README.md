@@ -1,0 +1,174 @@
+# LoRA vs full fine-tuning for Bangla NLI
+
+BSc thesis project. It compares LoRA with full fine-tuning of
+[BanglaBERT](https://huggingface.co/csebuetnlp/banglabert) on
+[XNLI-bn](https://huggingface.co/datasets/csebuetnlp/xnli_bn) (3-class natural language
+inference) under a matched training budget. Both methods are trained on 1%, 5% and 10% of
+the training set with five seeds each, for 30 runs.
+
+## Summary
+
+| | Result |
+|---|---|
+| Accuracy | No measurable difference at any data size. Test macro-F1 gaps are +0.0010 to +0.0024 and every 95% CI includes zero. |
+| Calibration | At 1% data, full fine-tuning is badly overconfident (ECE 0.245 vs 0.117). At 5% and 10% the gap is smaller and not significant. |
+| Efficiency | LoRA trains 0.80% of the parameters, saves a 124× smaller artefact, and uses 25% (T4) to 42% (A100) less peak GPU memory. |
+| Speed | LoRA is 1.5–2.1× faster on a T4 but not faster on an A100 (parity at 1%, about 6% slower at 5–10%). |
+
+![Test macro-F1 and ECE by data fraction](figures/f1_and_ece.png)
+
+## Setup
+
+| | |
+|---|---|
+| Base model | `csebuetnlp/banglabert` (110.6M parameters) |
+| Data | `csebuetnlp/xnli_bn`: 381,449 train / 2,419 validation / 4,895 test |
+| Preprocessing | `csebuetnlp/normalizer` on both sentences, max length 128 |
+| Full fine-tuning | all parameters, learning rate 2e-5 |
+| LoRA | r=8, alpha=16, dropout 0.1, on `query` and `value`, learning rate 2e-4 |
+| Training | 8 epochs, batch size 16, fp16, no early stopping |
+| Model selection | epoch with the best validation macro-F1; test scored once per run |
+| Subsets | `train.shuffle(seed).select(range(n))`, so both methods see the same data per seed |
+| Seeds | 7, 13, 21, 33, 42 |
+
+Both methods get the same fixed budget. In a pilot, early stopping with patience 2 stopped
+full fine-tuning at epoch 4 while LoRA was still improving, which made the comparison
+depend on the stopping rule. Validation macro-F1 is used for selection because it is the
+reported metric. At 5%, full fine-tuning's validation loss rises from 0.64 to 1.58 over
+training while its macro-F1 peaks at epochs 1–4.
+
+## Results
+
+All numbers come from `python src/analyze.py`. The full output is in
+[`results/stats.txt`](results/stats.txt).
+
+### Accuracy
+
+| Fraction | Full FT macro-F1 | LoRA macro-F1 | Gap (LoRA − full) | 95% CI | p (paired t) |
+|---|---|---|---|---|---|
+| 1% (3,814) | 0.7172 ± 0.0034 | 0.7183 ± 0.0080 | +0.0010 | [−0.0054, +0.0074] | 0.685 |
+| 5% (19,072) | 0.7683 ± 0.0072 | 0.7706 ± 0.0019 | +0.0024 | [−0.0076, +0.0123] | 0.547 |
+| 10% (38,144) | 0.7842 ± 0.0027 | 0.7851 ± 0.0044 | +0.0010 | [−0.0062, +0.0082] | 0.728 |
+
+± is the standard deviation over seeds. Per-seed exact McNemar tests: 1 of 15 has
+p < 0.05 and none survives Holm correction.
+
+No equivalence margin was fixed before the experiment, so no equivalence claim is made.
+The 90% CIs would support margins of ±0.0059 (1%), ±0.0100 (5%) and ±0.0065 (10%).
+
+The two methods reach the same score with different predictions. They agree on 83.9% (1%),
+86.6% (5%) and 86.9% (10%) of test items.
+
+### Calibration
+
+Expected calibration error, 15 equal-width bins:
+
+| Fraction | Full FT ECE | LoRA ECE | Difference | 95% CI | p | Seeds where LoRA is lower |
+|---|---|---|---|---|---|---|
+| 1% | 0.245 ± 0.009 | 0.117 ± 0.009 | −0.128 | [−0.139, −0.117] | 5 × 10⁻⁶ | 5/5 |
+| 5% | 0.102 ± 0.070 | 0.079 ± 0.006 | −0.023 | [−0.103, +0.058] | 0.48 | 3/5 |
+| 10% | 0.120 ± 0.062 | 0.052 ± 0.014 | −0.067 | [−0.150, +0.015] | 0.085 | 4/5 |
+
+At 1%, full fine-tuning's mean confidence is 96.0% at 71.6% accuracy; LoRA's is 83.4% at
+71.7%. Temperature scaling reduces the 1% gap to −0.027 (95% CI [−0.043, −0.011]). Only
+test logits were saved, so the temperature is fitted on one half of the test set and
+evaluated on the other.
+
+Full fine-tuning's ECE varies a lot between seeds at 5% and 10%, along with its selected
+epoch. The calibration difference is therefore tied to checkpoint selection under this
+protocol and is not claimed as a general property of LoRA.
+
+### Convergence
+
+![Validation macro-F1 per epoch](figures/dev_curves.png)
+
+| Fraction | Full FT best epochs | LoRA best epochs | Paired difference | p |
+|---|---|---|---|---|
+| 1% | 5, 5, 7, 8, 8 | 7, 8, 8, 8, 8 | +1.2 | 0.11 |
+| 5% | 1, 2, 2, 3, 4 | 6, 6, 7, 7, 8 | +4.4 (5/5 seeds) | 0.0001 |
+| 10% | 1, 2, 2, 4, 6 | 3, 4, 5, 6, 6 | +1.8 | 0.22 |
+
+At 5%, full fine-tuning peaks early and then loses 0.0123 ± 0.0058 validation macro-F1 by
+epoch 8.
+
+### Efficiency
+
+| | Full fine-tuning | LoRA |
+|---|---|---|
+| Trainable parameters | 110,619,651 | 887,811 (0.80%) |
+| Saved model | 442.51 MB | 3.57 MB |
+| Peak GPU memory, A100 | 2,712 MB | 1,570 MB |
+| Peak GPU memory, T4 | 2,418 MB | 1,805 MB |
+| Throughput, A100 (samples/s) | 268.4 | 253.1 |
+| Throughput, T4 (samples/s) | 89.5 | 156.2 |
+
+Because LoRA reaches its best epoch later, on an A100 it takes 1.6–2.7× longer than full
+fine-tuning to reach the checkpoint that is kept.
+
+## Limitations
+
+- **Two GPUs and two library versions.** 14 runs were trained on a Tesla T4
+  (transformers 5.15.0, peft 0.20.0) and 16 on an A100 (transformers 4.54.1, peft 0.14.0),
+  both with torch 2.11.0. Each (fraction, seed) pair ran on one machine, so paired
+  comparisons never mix them, but the pooled means do. The T4/A100 speed difference cannot
+  be attributed to the GPU alone.
+- **Six runs were replaced.** The 1% seed-42 pair (first run on a T4) and the 5% pairs for
+  seeds 21 and 33 (first run on an RTX 5060) were re-trained on the A100, and the A100
+  versions are the ones reported. The earlier test scores are in
+  [`results/superseded_runs.csv`](results/superseded_runs.csv); their logits were not kept.
+  Individual scores changed by up to 0.0068, and all three pairs moved towards LoRA. With
+  the earlier runs substituted, the gaps are −0.0004 [−0.0060, +0.0053] at 1% and
+  +0.0009 [−0.0104, +0.0123] at 5%. The conclusion does not change.
+- **The 8-epoch budget may be too short for LoRA at 1%.** Its best epoch was the last one in
+  4 of 5 seeds.
+- **Three data sizes are three points, not a scaling curve.** Nothing here tests what
+  happens at 25% or more of the data.
+- **Five seeds per cell.** Confidence intervals are wide, and the calibration and
+  convergence tests are not corrected for multiple comparisons.
+
+## Reproducing
+
+Statistics and figures, no GPU needed:
+
+```bash
+pip install numpy pandas scipy scikit-learn matplotlib
+python src/analyze.py
+```
+
+Training:
+
+```bash
+pip install -r requirements.txt
+pip install git+https://github.com/csebuetnlp/normalizer
+python src/train.py --out runs_out --fractions 0.01 --seeds 42
+```
+
+On Colab, use [`notebooks/colab_train.ipynb`](notebooks/colab_train.ipynb).
+
+The published runs were produced by a Colab notebook with extra tooling for unattended
+runs (checkpoint resume, result syncing between machines, progress files). `src/train.py`
+keeps the same training and evaluation settings without that tooling. It has not been used
+to regenerate the published runs.
+
+## Repository layout
+
+```
+src/
+  data.py        dataset loading, normalisation, tokenisation, metrics
+  train.py       training and evaluation, one manifest per run
+  analyze.py     all statistics and figures in this README
+notebooks/
+  colab_train.ipynb
+results/
+  runs/          one JSON manifest per run
+  curves/        per-epoch validation metrics
+  preds/         test logits and labels (.npz)
+  results.csv    one row per run
+  superseded_runs.csv
+  stats.txt      output of src/analyze.py
+figures/
+```
+
+## License
+
+MIT. BanglaBERT and XNLI-bn are from [CSE-BUET NLP](https://github.com/csebuetnlp).
