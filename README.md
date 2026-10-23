@@ -11,7 +11,7 @@ the training set with five seeds each, for 30 runs.
 | | Result |
 |---|---|
 | Accuracy | No measurable difference at any data size (gaps +0.0010 to +0.0024, every 95% CI includes zero). Equivalent within ±0.01 macro-F1 at 1% and 10%; at 5% the test sits exactly on the boundary. |
-| Calibration | At 1% data, full fine-tuning is badly overconfident (ECE 0.245 vs 0.117), consistently across seeds. At 5% and 10% the raw gap is not consistent across seeds. After temperature scaling LoRA keeps a small edge in every seed at every fraction. |
+| Calibration | At 1% data, full fine-tuning is badly overconfident (ECE 0.245 vs 0.117), consistently across seeds. At 5% and 10% the raw gap is not consistent across seeds. After temperature scaling LoRA keeps a small edge in every seed at every fraction; it meets the robustness rule at 1% and 5% but not at 10%. |
 | Efficiency | LoRA trains 0.80% of the parameters, saves a 124× smaller artefact, and uses 25% (T4) to 42% (A100) less peak GPU memory. |
 | Speed | LoRA is 1.5–2.1× faster on a T4 but not faster on an A100 (parity at 1%, about 6% slower at 5–10%). |
 
@@ -113,6 +113,37 @@ Full fine-tuning's raw ECE moves with its selected epoch, which scatters across 
 calibration difference is therefore tied to checkpoint selection under this protocol and is
 not claimed as a general property of LoRA.
 
+### Calibration: robustness rule
+
+The calibration claims are made with a stricter rule, computed by
+[`analysis/robustness_v2.ipynb`](analysis/robustness_v2.ipynb) (outputs in
+[`results/robustness/`](results/robustness/)). The **hierarchical** bootstrap (2,000
+resamples) draws five seeds with replacement and then resamples test items within each
+drawn seed, so it covers both training variability and test-set noise. A difference is
+called robust only if both the hierarchical CI and the seed-level paired t CI (n = 5)
+exclude zero. The rule was fixed before these intervals were computed.
+
+| Fraction | Metric | Difference | Hierarchical 95% CI | Seed-level t 95% CI | Verdict |
+|---|---|---|---|---|---|
+| 1% | ECE | −0.128 | [−0.135, −0.119] | [−0.139, −0.117] | **robust** |
+|  | Brier | −0.101 | [−0.109, −0.091] | [−0.110, −0.091] | **robust** |
+|  | NLL | −0.579 | [−0.670, −0.487] | [−0.718, −0.441] | **robust** |
+|  | ECE after T | −0.040 | [−0.047, −0.023] | [−0.056, −0.024] | **robust** |
+| 5% | ECE | −0.023 | [−0.071, +0.024] | [−0.102, +0.055] | not robust |
+|  | Brier | −0.023 | [−0.052, +0.001] | [−0.068, +0.021] | not robust |
+|  | NLL | −0.108 | [−0.265, +0.007] | [−0.340, +0.124] | not robust |
+|  | ECE after T | −0.016 | [−0.022, −0.003] | [−0.030, −0.003] | **robust** |
+| 10% | ECE | −0.067 | [−0.117, −0.015] | [−0.150, +0.015] | not robust |
+|  | Brier | −0.039 | [−0.070, −0.009] | [−0.087, +0.009] | not robust |
+|  | NLL | −0.249 | [−0.524, −0.022] | [−0.658, +0.161] | not robust |
+|  | ECE after T | −0.016 | [−0.022, −0.002] | [−0.033, +0.000] | not robust |
+
+Only the 1% raw gap, and the 1% and 5% gaps after temperature scaling, meet the rule. At
+10% after temperature scaling the t CI's upper bound is +0.0004, so it is not claimed. The
+item-only bootstrap used in an earlier version of the analysis resampled test items with
+the five models fixed, gave intervals that excluded zero at every fraction, and is not
+used for any claim.
+
 ### Convergence
 
 ![Validation macro-F1 per epoch](figures/dev_curves.png)
@@ -175,6 +206,13 @@ pip install numpy pandas scipy scikit-learn matplotlib
 python src/analyze.py
 ```
 
+Hierarchical-bootstrap calibration intervals (a few minutes on CPU):
+
+```bash
+pip install jupyter
+jupyter nbconvert --to notebook --execute analysis/robustness_v2.ipynb --output-dir /tmp
+```
+
 Training:
 
 ```bash
@@ -193,6 +231,8 @@ to regenerate the published runs.
 ## Repository layout
 
 ```
+analysis/
+  robustness_v2.ipynb  hierarchical-bootstrap calibration CIs
 src/
   data.py        dataset loading, normalisation, tokenisation, metrics
   train.py       training and evaluation, one manifest per run
@@ -206,6 +246,7 @@ results/
   results.csv    one row per run
   superseded_runs.csv
   stats.txt      output of src/analyze.py
+  robustness/    output of analysis/robustness_v2.ipynb
 figures/
 ```
 
