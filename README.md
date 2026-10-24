@@ -171,6 +171,77 @@ epoch 8.
 Because LoRA reaches its best epoch later, on an A100 it takes 1.6–2.7× longer than full
 fine-tuning to reach the checkpoint that is kept.
 
+## Supervisor revisions (October 2026, in progress)
+
+Three changes were requested: cross-dataset validation on BNLI, one or two more PEFT
+methods, and robust statistics throughout. This section records what has been run so far.
+Numbers here are descriptive (mean ± SD over five seeds); the statistical analysis of these
+runs has not been done yet.
+
+### BNLI cross-dataset runs
+
+[BNLI](https://aclanthology.org/2026.chipsal-1.9.pdf) (Haque et al., CHiPSAL 2026) is a
+Bangla NLI dataset whose premises were translated from SNLI and whose hypotheses were
+written by native speakers. It has no official split.
+
+**Cleaning** ([`src/make_bnli_split.py`](src/make_bnli_split.py)). The released file has
+24,067 rows (the paper reports 23,067). Removed: 1,000 empty rows, 9 rows with a missing
+field and 23 rows with an invalid label (23,035 left). Identical pairs were kept once and
+75 premise–hypothesis pairs that appear with two different labels were dropped, leaving
+22,519 pairs.
+
+**Split.** Premise-grouped 80/10/10 with split seed 100: pairs sharing a premise
+(whitespace- and punctuation-insensitive match, 6,858 groups) always land in the same
+split, so no premise appears in two splits. Train 18,013, validation 2,254, test 2,252
+(663 premises). Labels use the XNLI-bn ids (contradiction 0, entailment 1, neutral 2). The
+split files are not redistributed because BNLI's licence was not verified; the script
+rebuilds them byte-for-byte from `BNLI_Dataset.xlsx` (SHA-256 in
+[`results/bnli/split_sha256.txt`](results/bnli/split_sha256.txt)).
+
+**Training.** Same protocol as above (8 epochs, batch 16, fp16, one evaluation per epoch,
+no early stopping, best validation macro-F1 kept), seeds 7, 13, 21, 33, 42, all on an A100
+with transformers 4.54.1, peft 0.14.0 and torch 2.11.0+cu130. Every run scored both the
+BNLI test set and the XNLI-bn test set.
+
+| Method | BNLI test macro-F1 | XNLI-bn test macro-F1 (cross-dataset) |
+|---|---|---|
+| Full fine-tuning | 0.7624 ± 0.0066 | 0.6703 ± 0.0096 |
+| LoRA | 0.7580 ± 0.0019 | 0.6559 ± 0.0128 |
+
+Full fine-tuning scores higher in 4 of 5 seeds on both test sets; whether that difference
+is measurable is not yet tested. The BNLI test pairs cluster within 663 premises, so
+intervals for BNLI must resample premises, not pairs. Some hypothesis texts recur across
+splits with different premises (93 train/validation, 74 train/test, 15 validation/test).
+The runs were produced by [`notebooks/bnli_train_colab.ipynb`](notebooks/bnli_train_colab.ipynb);
+results are in [`results/bnli/`](results/bnli/). `failures.log` records LoRA attempts that
+crashed on an import error before training started (see the torchao note in
+`requirements.txt`); they were re-run successfully.
+
+### Additional PEFT methods
+
+- **DoRA** (Liu et al., ICML 2024): LoRA's exact settings plus `use_dora=True`.
+- **IA3** (Liu et al., NeurIPS 2022): learned scaling vectors on the self-attention keys and
+  values and on the feed-forward intermediate activation.
+
+| Method | Trainable parameters | of which adapter | of which classifier head |
+|---|---|---|---|
+| LoRA | 887,811 | 294,912 | 592,899 |
+| DoRA | 906,243 | 313,344 | 592,899 |
+| IA3 | 648,195 | 55,296 | 592,899 |
+
+Every method also trains the same classifier head, so the share of trainable parameters
+differs less between methods than the adapter sizes suggest.
+
+The IA3 learning rate was chosen from {1e-3, 3e-3, 1e-2} by validation macro-F1 at 5% data
+with a seed (0) not used for evaluation; 3e-3 was selected (validation macro-F1 0.7302,
+0.7487, 0.7462). Its validation curve was flat after epoch 3 and its best epoch was the
+last one. LoRA and full fine-tuning used standard learning rates that were not tuned, so
+IA3 received one selection step the other methods did not. Values are in
+[`results/peft/ia3_lr_check.csv`](results/peft/ia3_lr_check.csv), transcribed from the
+notebook output; the run manifests are not in this repository. The DoRA and IA3 runs on
+XNLI-bn have not been done yet and will be produced by
+[`notebooks/peft_train_colab.ipynb`](notebooks/peft_train_colab.ipynb).
+
 ## Limitations
 
 - **Two GPUs and two library versions.** 14 runs were trained on a Tesla T4
@@ -194,6 +265,8 @@ fine-tuning to reach the checkpoint that is kept.
   `train.shuffle(seed).select(range(n))`, which gives the same subset per seed and nests
   subsets across fractions by construction, but the indices were not recorded, so this is
   not verified against the runs themselves.
+- **Different torch build for the new runs.** The BNLI and PEFT runs used torch
+  2.11.0+cu130; the earlier runs used 2.11.0+cu128.
 - **Five seeds per cell.** Confidence intervals are wide, and the calibration and
   convergence tests are not corrected for multiple comparisons.
 
@@ -237,8 +310,11 @@ src/
   data.py        dataset loading, normalisation, tokenisation, metrics
   train.py       training and evaluation, one manifest per run
   analyze.py     all statistics and figures in this README
+  make_bnli_split.py  BNLI cleaning and premise-grouped split
 notebooks/
   colab_train.ipynb
+  bnli_train_colab.ipynb   BNLI runs (both test sets scored in every run)
+  peft_train_colab.ipynb   DoRA / IA3 on XNLI-bn, IA3 learning-rate check
 results/
   runs/          one JSON manifest per run
   curves/        per-epoch validation metrics
@@ -247,6 +323,8 @@ results/
   superseded_runs.csv
   stats.txt      output of src/analyze.py
   robustness/    output of analysis/robustness_v2.ipynb
+  bnli/          BNLI runs: manifests, curves, BNLI and XNLI-bn test logits
+  peft/          IA3 learning-rate check
 figures/
 ```
 
