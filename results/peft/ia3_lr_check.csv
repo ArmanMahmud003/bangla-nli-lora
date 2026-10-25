@@ -1,0 +1,4 @@
+lr,best_epoch,ceiling_hit,dev_f1_macro,train_runtime_s,trainable_params,chosen
+0.001,6,False,0.730212,527.0,648195,False
+0.003,8,True,0.748717,531.9,648195,True
+0.010,7,False,0.746212,533.3,648195,False
