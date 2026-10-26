@@ -1,0 +1,81 @@
+eval,fraction,a,b,agreement_mean,agreement_sd
+xnli_to_xnli,0.01,full_ft,lora,0.8324,0.0144
+xnli_to_xnli,0.01,full_ft,dora,0.8328,0.0141
+xnli_to_xnli,0.01,full_ft,ia3,0.8116,0.012
+xnli_to_xnli,0.01,lora,dora,0.9815,0.0138
+xnli_to_xnli,0.01,lora,ia3,0.8436,0.009
+xnli_to_xnli,0.01,dora,ia3,0.845,0.0095
+xnli_to_xnli,0.01,full_ft,full_ft (other seed),0.8128,0.0134
+xnli_to_xnli,0.01,lora,lora (other seed),0.846,0.0046
+xnli_to_xnli,0.01,dora,dora (other seed),0.8435,0.0056
+xnli_to_xnli,0.01,ia3,ia3 (other seed),0.8397,0.0113
+xnli_to_xnli,0.05,full_ft,lora,0.8652,0.0099
+xnli_to_xnli,0.05,full_ft,dora,0.8651,0.0109
+xnli_to_xnli,0.05,full_ft,ia3,0.8529,0.007
+xnli_to_xnli,0.05,lora,dora,0.9764,0.0222
+xnli_to_xnli,0.05,lora,ia3,0.8714,0.0028
+xnli_to_xnli,0.05,dora,ia3,0.8723,0.0026
+xnli_to_xnli,0.05,full_ft,full_ft (other seed),0.8428,0.011
+xnli_to_xnli,0.05,lora,lora (other seed),0.8835,0.0043
+xnli_to_xnli,0.05,dora,dora (other seed),0.8806,0.0043
+xnli_to_xnli,0.05,ia3,ia3 (other seed),0.8731,0.0061
+xnli_to_xnli,0.1,full_ft,lora,0.8686,0.0109
+xnli_to_xnli,0.1,full_ft,dora,0.8703,0.0115
+xnli_to_xnli,0.1,full_ft,ia3,0.8643,0.0137
+xnli_to_xnli,0.1,lora,dora,0.9775,0.016
+xnli_to_xnli,0.1,lora,ia3,0.8745,0.0036
+xnli_to_xnli,0.1,dora,ia3,0.8737,0.0028
+xnli_to_xnli,0.1,full_ft,full_ft (other seed),0.8513,0.0091
+xnli_to_xnli,0.1,lora,lora (other seed),0.8914,0.0073
+xnli_to_xnli,0.1,dora,dora (other seed),0.8932,0.0061
+xnli_to_xnli,0.1,ia3,ia3 (other seed),0.8815,0.0057
+xnli_to_bnli,0.01,full_ft,lora,0.8306,0.0197
+xnli_to_bnli,0.01,full_ft,dora,0.8273,0.0225
+xnli_to_bnli,0.01,full_ft,ia3,0.7912,0.0251
+xnli_to_bnli,0.01,lora,dora,0.9789,0.0196
+xnli_to_bnli,0.01,lora,ia3,0.8359,0.0118
+xnli_to_bnli,0.01,dora,ia3,0.8359,0.01
+xnli_to_bnli,0.01,full_ft,full_ft (other seed),0.8146,0.0186
+xnli_to_bnli,0.01,lora,lora (other seed),0.8257,0.0212
+xnli_to_bnli,0.01,dora,dora (other seed),0.8209,0.0253
+xnli_to_bnli,0.01,ia3,ia3 (other seed),0.8282,0.0172
+xnli_to_bnli,0.05,full_ft,lora,0.8752,0.0101
+xnli_to_bnli,0.05,full_ft,dora,0.8737,0.0132
+xnli_to_bnli,0.05,full_ft,ia3,0.8523,0.0194
+xnli_to_bnli,0.05,lora,dora,0.9736,0.0262
+xnli_to_bnli,0.05,lora,ia3,0.8707,0.0091
+xnli_to_bnli,0.05,dora,ia3,0.875,0.0064
+xnli_to_bnli,0.05,full_ft,full_ft (other seed),0.8515,0.018
+xnli_to_bnli,0.05,lora,lora (other seed),0.8774,0.008
+xnli_to_bnli,0.05,dora,dora (other seed),0.8754,0.0089
+xnli_to_bnli,0.05,ia3,ia3 (other seed),0.8718,0.0069
+xnli_to_bnli,0.1,full_ft,lora,0.8741,0.0112
+xnli_to_bnli,0.1,full_ft,dora,0.8744,0.0115
+xnli_to_bnli,0.1,full_ft,ia3,0.8712,0.0142
+xnli_to_bnli,0.1,lora,dora,0.9798,0.0131
+xnli_to_bnli,0.1,lora,ia3,0.8812,0.0077
+xnli_to_bnli,0.1,dora,ia3,0.8807,0.0065
+xnli_to_bnli,0.1,full_ft,full_ft (other seed),0.8589,0.0148
+xnli_to_bnli,0.1,lora,lora (other seed),0.8906,0.0066
+xnli_to_bnli,0.1,dora,dora (other seed),0.8869,0.0068
+xnli_to_bnli,0.1,ia3,ia3 (other seed),0.8839,0.0068
+bnli_to_bnli,1.0,full_ft,lora,0.8882,0.0123
+bnli_to_bnli,1.0,full_ft,dora,0.889,0.0126
+bnli_to_bnli,1.0,full_ft,ia3,0.8763,0.0156
+bnli_to_bnli,1.0,lora,dora,0.9864,0.0074
+bnli_to_bnli,1.0,lora,ia3,0.9077,0.0069
+bnli_to_bnli,1.0,dora,ia3,0.9068,0.0044
+bnli_to_bnli,1.0,full_ft,full_ft (other seed),0.8983,0.0113
+bnli_to_bnli,1.0,lora,lora (other seed),0.9356,0.0124
+bnli_to_bnli,1.0,dora,dora (other seed),0.937,0.0079
+bnli_to_bnli,1.0,ia3,ia3 (other seed),0.9311,0.0044
+bnli_to_xnli,1.0,full_ft,lora,0.8042,0.0095
+bnli_to_xnli,1.0,full_ft,dora,0.8047,0.0101
+bnli_to_xnli,1.0,full_ft,ia3,0.7938,0.0105
+bnli_to_xnli,1.0,lora,dora,0.9746,0.0168
+bnli_to_xnli,1.0,lora,ia3,0.8074,0.0078
+bnli_to_xnli,1.0,dora,ia3,0.8087,0.0079
+bnli_to_xnli,1.0,full_ft,full_ft (other seed),0.8356,0.0239
+bnli_to_xnli,1.0,lora,lora (other seed),0.8809,0.0132
+bnli_to_xnli,1.0,dora,dora (other seed),0.8778,0.0159
+bnli_to_xnli,1.0,ia3,ia3 (other seed),0.8749,0.0157
