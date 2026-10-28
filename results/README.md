@@ -12,6 +12,7 @@ Which files hold the final thesis results, which are superseded, and what the fi
 | `peft/` | DoRA and IA3 runs on XNLI-bn (3 fractions x 5 seeds), **plus the 14 full-FT/LoRA A100 re-runs** that replace the original T4 runs. |
 | `peft/ia3_lrcheck/` | IA3 learning-rate check (validation only, 5% data, seed 0). `summary.csv` is the one-line-per-rate table; `results.csv` is the full run log; `ia3_lr_choice.json` is the chosen rate. |
 | `bnli/` | All four methods trained on BNLI (5 seeds). `split_sha256.txt` fixes the split files; `test_premise_groups.csv` is used to resample premises in the bootstrap. |
+| `xnli_test_premise_groups.csv` | Premise group of each XNLI-bn test pair (4,895 pairs, 1,651 premises), in the row order of every saved XNLI-bn test prediction; its `label` column was checked against all 102 such files. Used to resample premises in the bootstrap on the XNLI-bn test set. |
 | `xbnli/` | XNLI-bn-trained models scored on the BNLI test set for the runs that did not score it during training: 8 full-FT A100 re-runs (`runs/`, `preds/`) and 8 saved LoRA adapters scored by inference (`lora_adapter_xtest.csv`). |
 | `runs/`, `curves/`, `preds/` (top level) | The original 30 full-FT/LoRA XNLI-bn runs. **Only the 16 A100 runs are used by the final analysis**; the 14 runs whose `gpu` is `Tesla T4` are replaced by their A100 re-runs in `peft/`. |
 
