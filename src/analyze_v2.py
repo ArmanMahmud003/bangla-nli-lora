@@ -15,7 +15,9 @@ Statistics (decided before this script was run)
   IA3 in the secondary family) and each metric:
     seed-level   paired t over the five seeds (95% CI, two-sided p)
     hierarchical bootstrap: resample seeds, then test items inside each drawn seed
-                 (BNLI test: resample premises, because pairs cluster within premises)
+                 test items are resampled by premise group on both test sets, because
+                 pairs share premises (XNLI-bn test: 4,895 pairs, 1,651 premises;
+                 BNLI test: 2,252 pairs, 663 premises)
   Holm correction within each family (evaluation set x metric x family).
   A difference is ROBUST only if the hierarchical 95% CI excludes 0 AND the
   Holm-adjusted seed-level p < 0.05.
@@ -34,7 +36,7 @@ from scipy import stats
 from scipy.optimize import minimize_scalar
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "results")
-OUT = os.path.join(ROOT, "v2")
+OUT = os.environ.get("OUT_DIR") or os.path.join(ROOT, "v2")
 N_BOOT = int(os.environ.get("N_BOOT", 2000))
 RNG_SEED = 20260910
 SEEDS = [7, 13, 21, 33, 42]
@@ -140,11 +142,12 @@ def bnli_path(method, seed, kind):
     return f"{ROOT}/bnli/preds/{method}_frac1.0_seed{seed}_{kind}.npz"
 
 
-EVALS = {   # name: (fractions, path function, clustered?)
-    "xnli_to_xnli": (FRACTIONS, lambda m, f, s: xnli_path(m, f, s, "test"), False),
-    "xnli_to_bnli": (FRACTIONS, lambda m, f, s: xnli_path(m, f, s, "xtest"), True),
-    "bnli_to_bnli": ([1.0], lambda m, f, s: bnli_path(m, s, "test"), True),
-    "bnli_to_xnli": ([1.0], lambda m, f, s: bnli_path(m, s, "xtest"), False),
+EVALS = {   # name: (fractions, path function, test set whose premises are resampled)
+    # third field = which test set's premise groups to resample in the bootstrap
+    "xnli_to_xnli": (FRACTIONS, lambda m, f, s: xnli_path(m, f, s, "test"), "xnli"),
+    "xnli_to_bnli": (FRACTIONS, lambda m, f, s: xnli_path(m, f, s, "xtest"), "bnli"),
+    "bnli_to_bnli": ([1.0], lambda m, f, s: bnli_path(m, s, "test"), "bnli"),
+    "bnli_to_xnli": ([1.0], lambda m, f, s: bnli_path(m, s, "xtest"), "xnli"),
 }
 
 
@@ -163,9 +166,14 @@ def load_all():
     return runs
 
 
-def bnli_clusters():
-    g = pd.read_csv(f"{ROOT}/bnli/test_premise_groups.csv").sort_values("row")
+def premise_clusters(path):
+    """Index arrays, one per premise group, in the row order of the saved predictions."""
+    g = pd.read_csv(path).sort_values("row")
     return [np.flatnonzero(g.premise_group.values == k) for k in np.unique(g.premise_group.values)]
+
+
+CLUSTER_FILES = {"bnli": f"{ROOT}/bnli/test_premise_groups.csv",
+                 "xnli": f"{ROOT}/xnli_test_premise_groups.csv"}
 
 
 # ---------------------------------------------------------------- statistics
@@ -214,7 +222,7 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     rng = np.random.default_rng(RNG_SEED)
     runs = load_all()
-    clusters = bnli_clusters()
+    clusters = {k: premise_clusters(p) for k, p in CLUSTER_FILES.items()}
 
     # per-run table
     per_run = pd.DataFrame([dict(eval=ev, method=m, fraction=f, seed=s,
@@ -227,10 +235,10 @@ def main():
 
     # comparisons
     rows = []
-    for ev, (fracs, _, clustered) in EVALS.items():
+    for ev, (fracs, _, test_set) in EVALS.items():
         for fam, pairs in (("primary", PRIMARY), ("secondary", SECONDARY)):
             for metric in METRICS:
-                block = [dict(compare(runs, ev, f, a, b, metric, clusters if clustered else None, rng), family=fam)
+                block = [dict(compare(runs, ev, f, a, b, metric, clusters[test_set], rng), family=fam)
                          for f in fracs for a, b in pairs]
                 adj = holm([r["p_t"] for r in block])
                 adj_tost = holm([r["p_tost"] for r in block]) if metric == "macro_f1" else [np.nan] * len(block)
