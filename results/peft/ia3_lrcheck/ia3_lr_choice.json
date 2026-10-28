@@ -1,0 +1,5 @@
+{
+  "ia3_lr": 0.003,
+  "dev_f1_macro": 0.7487169373665643,
+  "rule": "highest validation macro-F1 at 5% data, seed 0"
+}
