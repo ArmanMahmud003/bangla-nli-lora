@@ -237,7 +237,7 @@ with a seed (0) not used for evaluation; 3e-3 was selected (validation macro-F1 
 0.7487, 0.7462). Its validation curve was flat after epoch 3 and its best epoch was the
 last one. LoRA and full fine-tuning used standard learning rates that were not tuned, so
 IA3 received one selection step the other methods did not. Values are in
-[`results/peft/ia3_lr_check.csv`](results/peft/ia3_lr_check.csv), transcribed from the
+[`results/peft/ia3_lrcheck/summary.csv`](results/peft/ia3_lrcheck/summary.csv), transcribed from the
 notebook output; the run manifests are not in this repository. The DoRA and IA3 runs on
 XNLI-bn have not been done yet and will be produced by
 [`notebooks/peft_train_colab.ipynb`](notebooks/peft_train_colab.ipynb).
