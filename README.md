@@ -173,13 +173,16 @@ the 8-epoch limit in 2–3 of 5 seeds; full FT never did. On BNLI every method h
 
 | A100, batch 16 | Full FT | LoRA | DoRA | IA3 |
 |---|---|---|---|---|
-| Trainable parameters | 110,619,651 (100%) | 887,811 (0.796%) | 906,243 (0.813%) | 648,195 (0.583%) |
+| Trainable parameters | 110,619,651 (100%) | 887,811 (0.803%) | 906,243 (0.819%) | 648,195 (0.586%) |
 | Saved model | 442.51 MB | 3.57 MB | 3.65 MB | 2.61 MB |
 | Peak GPU memory | ≈ 2.71 GB | ≈ 1.57 GB | ≈ 1.76 GB | ≈ 1.89 GB |
 | Training time vs full FT | 1× | 0.99–1.07× | 1.30–1.49× | 0.87–0.96× |
 
 Source: [`results/v2/efficiency_v2.csv`](results/v2/efficiency_v2.csv). Times are wall-clock
 for the fixed 8-epoch budget on one GPU type.
+Percentages are of the 110,619,651-parameter model. The `pct_trainable` column in that
+file (0.796 / 0.813 / 0.583) divides by PEFT's larger total instead, which also counts the
+adapter and a second copy of the classifier head (`modules_to_save`).
 
 ## Limitations
 
