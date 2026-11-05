@@ -1,0 +1,14 @@
+similarity range -0.241 1.0 missing 0
+pairs meeting the paper's keep rule: 13641 / 22519 (60.6%)
+{'contradiction': 0.563, 'entailment': 0.53, 'neutral': 0.725}
+                mean    25%    50%    75%
+label                                    
+contradiction  0.298  0.128  0.267  0.453
+entailment     0.688  0.590  0.715  0.836
+neutral        0.536  0.411  0.542  0.680
+paper cut-offs on val: acc 0.5865 macroF1 0.5922
+paper cut-offs on test: acc 0.5799 macroF1 0.5872
+cut-offs fitted on train: 0.337 / 0.650, low/mid/high = ('contradiction', 'neutral', 'entailment'), train macroF1 0.6014
+fitted cut-offs on val: acc 0.6038 macroF1 0.6063
+fitted cut-offs on test: acc 0.5915 macroF1 0.5963
+majority-class test acc 0.3357
