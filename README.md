@@ -3,7 +3,7 @@
 BSc thesis project. It compares three parameter-efficient fine-tuning (PEFT) methods (LoRA,
 DoRA and IA3) with full fine-tuning of [BanglaBERT](https://huggingface.co/csebuetnlp/banglabert)
 on 3-class natural language inference, under a matched training budget. It reports both
-accuracy and calibration, on two datasets, tested in both directions:
+macro-F1 and calibration, on two datasets, tested in both directions:
 
 - [XNLI-bn](https://huggingface.co/datasets/csebuetnlp/xnli_bn), with 1%, 5% and 10% of the training set
 - [BNLI](https://aclanthology.org/2026.chipsal-1.9.pdf) (Haque et al., CHiPSAL 2026), with a premise-grouped split built here
@@ -19,11 +19,11 @@ All statements below come from [`results/v2/`](results/v2/), which is produced b
 
 | | Result |
 |---|---|
-| Accuracy | LoRA and DoRA show **no measurable difference** from full FT in any setting. Equivalence within ±0.01 macro-F1 is **not** shown. IA3 is less accurate on XNLI-bn (robust at 1% and 10% vs full FT; at 1% and 5% vs LoRA). DoRA is equivalent to LoRA within ±0.01 in all 8 settings. |
+| Macro-F1 | LoRA and DoRA show **no measurable difference** from full FT in any setting. Equivalence within ±0.01 macro-F1 is **not** shown. IA3 has lower macro-F1 on XNLI-bn (robust at 1% and 10% vs full FT; at 1% and 5% vs LoRA). DoRA is equivalent to LoRA within ±0.01 in all 8 settings. |
 | Calibration | At 1% XNLI-bn data, LoRA and DoRA have robustly lower ECE than full FT (0.113 and 0.116 vs 0.221; Holm p = 0.045). The same models tested on BNLI show the clearest effect: all three PEFT methods have robustly lower ECE and Brier score than full FT. At 5% there is no consistent direction (PEFT lower in 2 of 5 seeds). At 10% and on BNLI-trained models the direction favours PEFT in 4–5 of 5 seeds but is not robust. |
 | Cross-dataset | Testing on the other dataset costs 5.9–10.2 macro-F1 points. For XNLI-bn-trained models, the drop grows with training size for every method. Whether the drop differs between methods was not tested. |
 | Reliability | Training is bit-for-bit reproducible on the same GPU and library version. Changing GPU and library version (T4 vs A100) moved macro-F1 by up to 0.79 points but **ECE by up to 0.096**, close to the size of the main calibration effect. |
-| Efficiency | Trainable parameters: LoRA 0.80%, DoRA 0.81%, IA3 0.58%. Saved artefact: 2.6–3.7 MB vs 442.5 MB. Peak GPU memory: 1.57–1.89 GB vs 2.71 GB. On the A100, LoRA trains in about the same time as full FT, DoRA is 1.30–1.49× slower and IA3 is 4–13% faster. |
+| Efficiency | Trainable parameters (share of the 110,619,651-parameter model): LoRA 0.803%, DoRA 0.819%, IA3 0.586%. Saved artefact: 2.6–3.7 MB vs 442.5 MB. Peak GPU memory: 1.57–1.89 GB vs 2.71 GB. On the A100, LoRA trains in about the same time as full FT, DoRA is 1.30–1.49× slower and IA3 is 4–13% faster. |
 
 ![Test macro-F1 and ECE on XNLI-bn](figures/v2_xnli_f1_ece.png)
 
@@ -94,12 +94,23 @@ A difference is **robust** only if the bootstrap CI excludes zero and the Holm-a
 The ±0.01 margin was chosen after the original runs. It was not pre-registered.
 
 ECE uses 15 equal-width bins on top-class confidence over [1/3, 1]; using [0, 1] changes no
-conclusion. For temperature scaling, only test logits were saved, so the temperature is
-fitted by 5-fold cross-validation on the test set (fit on four folds, apply to the fifth).
-This is not the usual validation-set fit and is reported as such.
+conclusion.
+
+**Temperature scaling.** Only test logits were saved, so the temperature is fitted by 5-fold
+cross-validation on the test set: a scalar T is fitted by minimising NLL on four folds and
+applied to the fifth. This is not the usual validation-set fit and is reported as such.
+Folds are formed **by premise group**, so pairs sharing a premise are never split between
+fitting and scaling. Each run is repeated with **20 random fold assignments** (fold seed = run
+seed + 1000·k, k = 0–19, "set A"), and ECE after T is the mean over the 20. In the bootstrap
+the 20 scaled outputs are kept fixed and T is **not** refitted within resamples, so the
+intervals do not include the uncertainty in fitting T. A second, independent set of 20
+assignments (k = 20–39, "set B") is a stability check. Scripts and outputs:
+[`analysis/ece_after_t/`](analysis/ece_after_t/) (see its `README.txt`).
 
 Every number in `results/v2/` was reproduced by a separate implementation, with no
-disagreement on any robust or equivalence verdict.
+disagreement on any robust or equivalence verdict. **Exception:** the ECE-after-T values in
+`results/v2/` come from the earlier single-assignment, pair-level folds and are superseded by
+`analysis/ece_after_t/setA_*.csv`.
 
 ## Results
 
@@ -137,8 +148,14 @@ Mean ± SD over five seeds. ▼ / ▲ = robustly lower / higher than full FT. Th
 **Points the tables do not show**
 
 - At 1% on XNLI-bn, Brier, NLL and ECE after temperature scaling also favour LoRA and DoRA
-  in 5 of 5 seeds, but none of them is robust (Holm p 0.073–0.127). On the BNLI test, ECE
+  in 5 of 5 seeds, but none of them is robust (Holm p 0.063–0.127). On the BNLI test, ECE
   and Brier are both robust.
+- After temperature scaling (set A), every method's own-test ECE is 0.015–0.058 and the
+  PEFT–full FT gaps shrink (LoRA at 1%: −0.108 → −0.034). 10 of 12 own-test PEFT-vs-full-FT
+  differences are not robust. Robust: IA3 − full FT at 1% XNLI-bn (−0.041, Holm p = 0.039,
+  also robust in set B) and LoRA − full FT on BNLI (−0.013, Holm p = 0.019, CI upper end
+  −0.0002; **not robust in set B, so treat it as unstable**). No cross-dataset PEFT-vs-full-FT
+  difference is robust after scaling.
 - The in-domain ECE result for LoRA and DoRA at 1% passes with Holm p = 0.045, close to the
   threshold. The cross-dataset version is much clearer (Holm p = 0.003 / 0.005 / 0.012).
 - Full FT's ECE varies far more across seeds than any PEFT method's (XNLI-bn SD 0.036 /
@@ -173,13 +190,16 @@ the 8-epoch limit in 2–3 of 5 seeds; full FT never did. On BNLI every method h
 
 | A100, batch 16 | Full FT | LoRA | DoRA | IA3 |
 |---|---|---|---|---|
-| Trainable parameters | 110,619,651 (100%) | 887,811 (0.796%) | 906,243 (0.813%) | 648,195 (0.583%) |
+| Trainable parameters | 110,619,651 (100%) | 887,811 (0.803%) | 906,243 (0.819%) | 648,195 (0.586%) |
 | Saved model | 442.51 MB | 3.57 MB | 3.65 MB | 2.61 MB |
 | Peak GPU memory | ≈ 2.71 GB | ≈ 1.57 GB | ≈ 1.76 GB | ≈ 1.89 GB |
 | Training time vs full FT | 1× | 0.99–1.07× | 1.30–1.49× | 0.87–0.96× |
 
 Source: [`results/v2/efficiency_v2.csv`](results/v2/efficiency_v2.csv). Times are wall-clock
-for the fixed 8-epoch budget on one GPU type.
+for the fixed 8-epoch budget on one GPU type. Percentages are the trainable count divided by
+the 110,619,651-parameter model. `efficiency_v2.csv` and PEFT's `print_trainable_parameters()`
+show 0.796% / 0.813% / 0.583% because their denominator also counts the adapter and a second
+copy of the classifier head; do not copy percentages from that file.
 
 ## Limitations
 
@@ -190,7 +210,7 @@ for the fixed 8-epoch budget on one GPU type.
 - **Learning rates.** LoRA/DoRA and full-FT rates were not tuned. IA3 received one
   validation-only selection step that the others did not. DoRA used LoRA's rate.
 - **Temperature scaling** was fitted on the test set by cross-validation, because only test
-  logits were saved.
+  logits were saved, and T is not refitted within bootstrap resamples.
 - **TOST margin** (±0.01) was chosen after the original runs.
 - **BNLI** premises are translated, so BNLI reduces but does not remove translation
   effects. Hypothesis texts recur across splits.
@@ -238,6 +258,7 @@ src/
   analyze.py            earlier two-method analysis (superseded)
 notebooks/              Colab training notebooks
 analysis/
+  ece_after_t/          ECE after temperature scaling, premise-grouped folds, sets A/B (final)
   robustness_v2.ipynb   earlier two-method calibration CIs (superseded)
 results/                run manifests, per-epoch curves, test logits, analysis outputs
 figures/                v2_*.png final; dev_curves.png and f1_and_ece.png superseded
